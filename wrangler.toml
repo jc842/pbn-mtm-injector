@@ -4,39 +4,9 @@ compatibility_date = "2024-09-01"
 account_id = "df182eb73e4153b55d555f65d4fd7f90"
 workers_dev = true
 
-routes = [
-  { pattern = "*caraibes-evasion.com/*", zone_name = "caraibes-evasion.com" },
-  { pattern = "*bleucaraibes.com/*", zone_name = "bleucaraibes.com" },
-  { pattern = "*artguadeloupe.com/*", zone_name = "artguadeloupe.com" },
-  { pattern = "*decouvrirlaguadeloupe.com/*", zone_name = "decouvrirlaguadeloupe.com" },
-  { pattern = "*itineraire-martinique.com/*", zone_name = "itineraire-martinique.com" },
-  { pattern = "*club-voyages.com/*", zone_name = "club-voyages.com" },
-  { pattern = "*stbarthlife.com/*", zone_name = "stbarthlife.com" },
-  { pattern = "*surf-guadeloupe.com/*", zone_name = "surf-guadeloupe.com" },
-  { pattern = "*sargasse.com/*", zone_name = "sargasse.com" },
-  { pattern = "*leguideguadeloupe.com/*", zone_name = "leguideguadeloupe.com" },
-  { pattern = "*leguidemartinique.com/*", zone_name = "leguidemartinique.com" },
-  { pattern = "*vacancesenguadeloupe.com/*", zone_name = "vacancesenguadeloupe.com" },
-  { pattern = "*hebergement-guadeloupe-location.com/*", zone_name = "hebergement-guadeloupe-location.com" },
-  { pattern = "*123fenetre.fr/*", zone_name = "123fenetre.fr" },
-  { pattern = "*123alu.com/*", zone_name = "123alu.com" },
-  { pattern = "*ambiance-decoration.com/*", zone_name = "ambiance-decoration.com" },
-  { pattern = "*challengeimmo.com/*", zone_name = "challengeimmo.com" },
-  { pattern = "*comparateur-conciergerie.com/*", zone_name = "comparateur-conciergerie.com" },
-  { pattern = "*eco-antilles.com/*", zone_name = "eco-antilles.com" },
-  { pattern = "*estimer-ma-villa.com/*", zone_name = "estimer-ma-villa.com" },
-  { pattern = "*guadeloupe-immo.com/*", zone_name = "guadeloupe-immo.com" },
-  { pattern = "*noteimmo.com/*", zone_name = "noteimmo.com" },
-  { pattern = "*parisfenetres.com/*", zone_name = "parisfenetres.com" },
-  { pattern = "*piscine-guadeloupe.com/*", zone_name = "piscine-guadeloupe.com" },
-  { pattern = "*realestatestbarthelemy.com/*", zone_name = "realestatestbarthelemy.com" },
-  { pattern = "*sxm-immo.com/*", zone_name = "sxm-immo.com" },
-  { pattern = "*thesintmaarten.com/*", zone_name = "thesintmaarten.com" },
-  { pattern = "*unmondesaintbarth.com/*", zone_name = "unmondesaintbarth.com" },
-  { pattern = "*vendreoulouer.com/*", zone_name = "vendreoulouer.com" },
-  { pattern = "*villa-location-guadeloupe.com/*", zone_name = "villa-location-guadeloupe.com" },
-  { pattern = "*villa-prestige-stbarth.com/*", zone_name = "villa-prestige-stbarth.com" }
-]
+# Routes désactivées : les 31 domaines sont désormais servis directement et nativement par Cloudflare Pages (Solution 3)
+# routes = [ ... ]
+routes = []
 
 [vars]
 DEFAULT_CONTAINER = "container_ylbWmynX.js"
