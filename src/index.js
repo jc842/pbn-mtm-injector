@@ -266,6 +266,15 @@ export const PAGES_ORIGINS = {
 export const DEFAULT_CONTAINER = 'container_ylbWmynX.js';
 export const MATOMO_HOST = 'https://analytics.les4h.fr';
 
+// 1. Scrapers agressifs non-SEO à bloquer immédiatement (ImageBot / img2dataset)
+const BLOCKED_BOT_REGEX = /ImageBot|img2dataset/i;
+
+// 2. Anciens chemins WordPress inexistants à rejeter immédiatement en 404 sans toucher Pages
+const LEGACY_DEAD_PATHS = /^\/(wp-content|wp-includes|wp-json|wp-admin|media\/posts|xmlrpc\.php|autodiscover|\.env|\.git)/i;
+
+// 3. Extensions de fichiers statiques (images, styles, polices, scripts, médias)
+const STATIC_ASSET_REGEX = /\.(png|jpe?g|webp|gif|svg|ico|css|js|woff2?|ttf|eot|mp4|webm|pdf|xml|txt)$/i;
+
 /**
  * Handler HTMLRewriter pour insérer le conteneur MTM dans le <head>
  */
@@ -294,17 +303,39 @@ export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
     const hostname = url.hostname.toLowerCase();
+    const pathname = url.pathname;
+    const ua = request.headers.get('user-agent') || '';
 
-    // 1. Diagnostics sur l'URL workers.dev directe
+    // 0. Bloquer immédiatement les scrapers d'images non autorisés
+    if (BLOCKED_BOT_REGEX.test(ua)) {
+      return new Response('Access Denied', {
+        status: 403,
+        headers: { 'Retry-After': '86400', 'Content-Type': 'text/plain; charset=utf-8' }
+      });
+    }
+
+    // 1. Rejeter immédiatement les anciens chemins WordPress inexistants (évite d'appeler Pages)
+    if (LEGACY_DEAD_PATHS.test(pathname)) {
+      return new Response('Not Found', {
+        status: 404,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'public, max-age=86400, s-maxage=86400',
+        },
+      });
+    }
+
+    // 2. Diagnostics sur l'URL workers.dev directe
     if (hostname.endsWith('.workers.dev') && !url.searchParams.has('proxy')) {
       return new Response(JSON.stringify({
         service: "pbn-mtm-injector",
-        status: "active",
+        status: "active (optimized)",
         compliance: "RGPD Cookieless / Sans CMP",
         matomoHost: MATOMO_HOST,
         pagesOrigins: PAGES_ORIGINS,
         configuredDomainsCount: Object.keys(MTM_CONTAINERS).length,
         defaultContainer: DEFAULT_CONTAINER,
+        features: ["Edge Caching", "Anti-SPATrap 404", "Legacy WP Fast-404", "Scraper Protection"],
         usage: "Ce worker intercepte vos noms de domaine pour servir les sites Cloudflare Pages avec injection MTM cookieless."
       }, null, 2), {
         status: 200,
@@ -312,19 +343,31 @@ export default {
       });
     }
 
-    // 2. Déterminer l'URL cible (Pages origin, test proxy ou requête directe)
+    // 3. Déterminer l'URL cible (Pages origin, test proxy ou requête directe)
     const pagesOrigin = PAGES_ORIGINS[hostname];
     let targetUrl;
 
     if (url.searchParams.has('proxy')) {
       targetUrl = url.searchParams.get('proxy');
     } else if (pagesOrigin) {
-      targetUrl = `${pagesOrigin}${url.pathname}${url.search}`;
+      targetUrl = `${pagesOrigin}${pathname}${url.search}`;
     } else {
       targetUrl = request.url;
     }
 
-    // 3. Préparer les en-têtes d'origine
+    const isStaticAsset = STATIC_ASSET_REGEX.test(pathname);
+
+    // 4. Cache Edge pour requêtes GET (caches.default)
+    const cache = caches.default;
+    const cacheKey = new Request(url.toString(), request);
+    if (request.method === 'GET') {
+      const cachedResponse = await cache.match(cacheKey);
+      if (cachedResponse) {
+        return cachedResponse;
+      }
+    }
+
+    // 5. Préparer les en-têtes d'origine
     const originHeaders = new Headers(request.headers);
     if (pagesOrigin) {
       originHeaders.set('Host', new URL(pagesOrigin).hostname);
@@ -337,11 +380,12 @@ export default {
       headers: originHeaders,
       body: ['GET', 'HEAD'].includes(request.method) ? undefined : request.body,
       redirect: 'manual',
+      cf: isStaticAsset ? { cacheEverything: true, cacheTtl: 86400 } : undefined,
     });
 
     const response = await fetch(originRequest);
 
-    // 4. Gérer les redirections 301, 302, 307, 308 (ex: /blog -> /blog/ ou slugs d'articles)
+    // 6. Gérer les redirections 301, 302, 307, 308 (ex: /blog -> /blog/ ou slugs d'articles)
     if ([301, 302, 307, 308].includes(response.status)) {
       const location = response.headers.get('location');
       if (location) {
@@ -359,32 +403,60 @@ export default {
       return response;
     }
 
-    // 5. Ignorer si ce n'est pas du HTML ou statut non-200 (images, JS, CSS, JSON, 304...)
     const contentType = response.headers.get('content-type') || '';
+
+    // 7. Anti SPA-Trap : Si le client a demandé un asset statique (.png, .jpg, .css...) mais que Pages renvoie du HTML (fallback 200),
+    // c'est un fichier inexistant ! On retourne immédiatement 404 pour stopper les bots.
+    if (isStaticAsset && contentType.includes('text/html')) {
+      const notFoundResponse = new Response('Not Found', {
+        status: 404,
+        headers: {
+          'Content-Type': 'text/plain; charset=utf-8',
+          'Cache-Control': 'public, max-age=86400, s-maxage=86400',
+        },
+      });
+      if (request.method === 'GET') {
+        ctx.waitUntil(cache.put(cacheKey, notFoundResponse.clone()));
+      }
+      return notFoundResponse;
+    }
+
+    // 8. Fichiers statiques réels (images existantes, JS, CSS, JSON, 304...)
     if (response.status !== 200 || !contentType.includes('text/html')) {
+      if (request.method === 'GET' && response.status === 200) {
+        const assetResponse = new Response(response.body, response);
+        assetResponse.headers.set('Cache-Control', 'public, max-age=86400, s-maxage=86400');
+        ctx.waitUntil(cache.put(cacheKey, assetResponse.clone()));
+        return assetResponse;
+      }
       return response;
     }
 
-    // 6. Déterminer le conteneur MTM associé au domaine
+    // 9. Injection MTM dans le HTML
     const lookupHost = url.searchParams.has('proxy') 
       ? new URL(targetUrl).hostname.toLowerCase() 
       : hostname;
     const containerFilename = MTM_CONTAINERS[lookupHost] || env?.DEFAULT_CONTAINER || DEFAULT_CONTAINER;
     const containerUrl = `${MATOMO_HOST}/js/${containerFilename}`;
 
-    // 7. Cloner les en-têtes en supprimant content-length (taille modifiée par l'injection)
     const newHeaders = new Headers(response.headers);
     newHeaders.delete('content-length');
+    // Mise en cache CDN edge pendant 5 minutes pour les pages HTML transformées
+    newHeaders.set('Cache-Control', 'public, max-age=0, s-maxage=300');
 
-    // 8. Transformation en streaming via HTMLRewriter
     const rewriter = new HTMLRewriter().on('head', new MtmHeadInjector(containerUrl));
-
-    return rewriter.transform(
+    const transformedResponse = rewriter.transform(
       new Response(response.body, {
         status: response.status,
         statusText: response.statusText,
         headers: newHeaders,
       })
     );
+
+    if (request.method === 'GET') {
+      ctx.waitUntil(cache.put(cacheKey, transformedResponse.clone()));
+    }
+
+    return transformedResponse;
   },
 };
